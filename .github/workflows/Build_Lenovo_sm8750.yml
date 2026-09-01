@@ -68,6 +68,12 @@ on:
         default: true
         type: boolean
 
+      enable_zw_fix:
+        description: "应用Unicode零宽绕过修复补丁(CVE-2024-43093/CVE-2024-50089)"
+        required: false
+        default: true
+        type: boolean
+
       
        
 jobs:
@@ -86,6 +92,7 @@ jobs:
       ENABLE_KPM: ${{ github.event.inputs.enable_kpm }}
       ENABLE_SUSFS: ${{ github.event.inputs.enable_susfs }}
       ENABLE_SIGNED: ${{ github.event.inputs.enable_signed }}
+      ENABLE_ZW_FIX: ${{ github.event.inputs.enable_zw_fix }}
     steps:
       - uses: actions/checkout@v5
         with:
@@ -509,6 +516,32 @@ jobs:
             fi
           done
           echo "==> ntsync 补丁应用完成"
+
+      - name: 🔧 Apply Unicode zero-width bypass fix (应用Unicode零宽绕过修复补丁)
+        if: ${{ env.ENABLE_ZW_FIX == 'true' }}
+        working-directory: kernel_workspace/common
+        run: |
+          echo "==> 开始应用 Unicode 零宽绕过修复补丁 (CVE-2024-43093 / CVE-2024-50089)..."
+          for ZW_PATCH in "unicode_bypass_fix_5.10-6.12.patch" "unicode_bypass_fix2.patch"; do
+            ZW_PATCH_PATH="${GITHUB_WORKSPACE}/patch/${ZW_PATCH}"
+            if [ ! -f "$ZW_PATCH_PATH" ]; then
+              echo "::error::未找到 Unicode 零宽修复补丁: $ZW_PATCH_PATH"
+              exit 1
+            fi
+            echo "  应用: $ZW_PATCH"
+            dos2unix "$ZW_PATCH_PATH"
+            if patch -p1 --forward --ignore-whitespace < "$ZW_PATCH_PATH" > /tmp/zw_patch.log 2>&1; then
+              echo "  ✓ $ZW_PATCH 应用成功"
+            else
+              if grep -q "Reversed (or previously applied) patch detected" /tmp/zw_patch.log; then
+                echo "  ✓ $ZW_PATCH 已应用过，跳过"
+              else
+                echo "  ::warning::$ZW_PATCH 应用失败，可能已应用或上下文不匹配，详见 /tmp/zw_patch.log"
+                tail -n 20 /tmp/zw_patch.log || true
+              fi
+            fi
+          done
+          echo "==> Unicode 零宽绕过修复补丁处理完成"
 
       - name: 🔧 Set gki_defconfig (设置编译配置)
         run: |
