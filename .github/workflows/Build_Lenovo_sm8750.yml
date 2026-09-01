@@ -522,12 +522,23 @@ jobs:
         working-directory: kernel_workspace/common
         run: |
           echo "==> 开始应用 Unicode 零宽绕过修复补丁 (CVE-2024-43093 / CVE-2024-50089)..."
-          for ZW_PATCH in "unicode_bypass_fix_5.10-6.12.patch" "unicode_bypass_fix2.patch"; do
-            ZW_PATCH_PATH="${GITHUB_WORKSPACE}/patch/${ZW_PATCH}"
-            if [ ! -f "$ZW_PATCH_PATH" ]; then
-              echo "::error::未找到 Unicode 零宽修复补丁: $ZW_PATCH_PATH"
-              exit 1
+          PATCH_DIR="${GITHUB_WORKSPACE}/patch"
+          mkdir -p "$PATCH_DIR"
+          # 若补丁不在仓库 patch/ 目录，则自动从上游 ITxiao6666/Unicode_bypass_Fix 下载
+          ensure_zw_patch() {
+            local name="$1" url="$2"
+            if [ ! -f "${PATCH_DIR}/${name}" ]; then
+              echo "  [$name] 未在仓库中找到，正在从上游下载..."
+              if ! curl -fL --retry 3 -o "${PATCH_DIR}/${name}" "$url"; then
+                echo "::error::[$name] 下载失败: $url"
+                exit 1
+              fi
             fi
+          }
+          ensure_zw_patch "unicode_bypass_fix_5.10-6.12.patch" "https://raw.githubusercontent.com/ITxiao6666/Unicode_bypass_Fix/main/unicode-bypass_fix_5.10-6.12%E9%80%9A%E7%94%A8.patch"
+          ensure_zw_patch "unicode_bypass_fix2.patch" "https://raw.githubusercontent.com/ITxiao6666/Unicode_bypass_Fix/main/unicode_bypass_fix2.patch"
+          for ZW_PATCH in "unicode_bypass_fix_5.10-6.12.patch" "unicode_bypass_fix2.patch"; do
+            ZW_PATCH_PATH="${PATCH_DIR}/${ZW_PATCH}"
             echo "  应用: $ZW_PATCH"
             dos2unix "$ZW_PATCH_PATH"
             if patch -p1 --forward --ignore-whitespace < "$ZW_PATCH_PATH" > /tmp/zw_patch.log 2>&1; then
