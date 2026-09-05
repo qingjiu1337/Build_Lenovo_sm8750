@@ -858,6 +858,18 @@ jobs:
           mv ./new-boot.img ./boot.img
           python3 rebuild_avb.py --chained-mode
 
+      - name: 📥 Download ReSukiSU Manager APK (下载管理器)
+        run: |
+          cd /tmp
+          curl -L -o Manager-release.zip "https://nightly.link/ReSukiSU/ReSukiSU/workflows/build-manager/main/Manager-release.zip"
+          mkdir -p manager && unzip -o Manager-release.zip -d manager
+          ls -la manager/
+
+      - name: 📤 Upload ReSukiSU Manager APK (上传管理器)
+        uses: actions/upload-artifact@v5
+        with:
+          name: ReSukiSU-Manager
+          path: /tmp/manager/*.apk
       - name: 📤 Upload Signed boot (上传已签名的 boot)
         if: ${{ env.ENABLE_SIGNED == 'true' }}
         uses: actions/upload-artifact@v5
