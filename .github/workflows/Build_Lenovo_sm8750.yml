@@ -73,6 +73,11 @@ on:
         required: false
         default: true
         type: boolean
+      enable_hidhide:
+        description: "附加构建HIDHide LKM (hidhide.ko)"
+        required: false
+        default: true
+        type: boolean
 
       
        
@@ -93,6 +98,7 @@ jobs:
       ENABLE_SUSFS: ${{ github.event.inputs.enable_susfs }}
       ENABLE_SIGNED: ${{ github.event.inputs.enable_signed }}
       ENABLE_ZW_FIX: ${{ github.event.inputs.enable_zw_fix }}
+      ENABLE_HIDHIDE: ${{ github.event.inputs.enable_hidhide }}
     steps:
       - uses: actions/checkout@v5
         with:
@@ -831,6 +837,7 @@ jobs:
           ls -l /tmp/hidhide/hidhide.ko
 
       - name: 📤 Upload HIDHide LKM
+        if: ${{ env.ENABLE_HIDHIDE == 'true' }}
         uses: actions/upload-artifact@v5
         with:
           name: hidhide_ko_${{ env.KERNEL_VERSION }}
