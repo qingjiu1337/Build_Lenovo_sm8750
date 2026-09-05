@@ -869,7 +869,7 @@ jobs:
         if: ${{ env.ENABLE_MANAGER_APK == 'true' }}
         run: |
           cd /tmp
-          curl -L -o Manager-release.zip "https://nightly.link/ReSukiSU/ReSukiSU/runs/27019748382/Manager-release.zip"
+          curl -L -o Manager-release.zip "https://nightly.link/ReSukiSU/ReSukiSU/workflows/build-manager/main/Manager-release.zip"
           mkdir -p manager && unzip -o Manager-release.zip -d manager
           ls -la manager/
 
