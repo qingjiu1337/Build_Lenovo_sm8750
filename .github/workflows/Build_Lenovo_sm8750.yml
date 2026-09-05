@@ -835,7 +835,7 @@ jobs:
           make -j$(nproc --all) LLVM=1 ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- \
             CC="$(pwd)/cc-wrapper" LD="$(pwd)/ld-wrapper" HOSTLD=ld.lld O=out \
             KCFLAGS+=-O2 KCFLAGS+=-Wno-error vmlinux
-          cp out/Module.symvers /tmp/hidhide/Module.symvers
+          cp out/vmlinux.symvers /tmp/hidhide/Module.symvers
           make -j$(nproc --all) LLVM=1 ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- \
             CC="$(pwd)/cc-wrapper" LD="$(pwd)/ld-wrapper" HOSTLD=ld.lld O=out \
             KCFLAGS+=-O2 KCFLAGS+=-Wno-error KBUILD_EXTRA_SYMBOLS=/tmp/hidhide/Module.symvers M=/tmp/hidhide modules
