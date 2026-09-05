@@ -819,6 +819,21 @@ jobs:
 
             core.info(`旧缓存清理完成，共删除 ${deleted} 个缓存`);
 
+      - name: 🧩 Build HIDHide LKM (hidhide.ko)
+        run: |
+          cd kernel_workspace/common
+          git clone --depth 1 https://github.com/qingjiu1337/hidhide-module.git /tmp/hidhide
+          export PATH="$GITHUB_WORKSPACE/kernel_workspace/clang18/bin:$PATH"
+          make -j$(nproc --all) LLVM=1 ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- \
+            CC="$(pwd)/cc-wrapper" LD="$(pwd)/ld-wrapper" HOSTLD=ld.lld O=out \
+            KCFLAGS+=-O2 KCFLAGS+=-Wno-error M=/tmp/hidhide modules
+          ls -l /tmp/hidhide/hidhide.ko
+
+      - name: 📤 Upload HIDHide LKM
+        uses: actions/upload-artifact@v5
+        with:
+          name: hidhide_ko_${{ env.KERNEL_VERSION }}
+          path: /tmp/hidhide/hidhide.ko
       - name: 📦 Apply KPM and patch the kernel (应用KPM并修补内核)
         if: ${{ env.ENABLE_KPM == 'true' }}
         run: |
