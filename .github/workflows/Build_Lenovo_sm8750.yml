@@ -820,6 +820,7 @@ jobs:
             core.info(`旧缓存清理完成，共删除 ${deleted} 个缓存`);
 
       - name: 🧩 Build HIDHide LKM (hidhide.ko)
+        if: ${{ env.ENABLE_HIDHIDE == 'true' }}
         run: |
           cd kernel_workspace/common
           git clone --depth 1 https://github.com/qingjiu1337/hidhide-module.git /tmp/hidhide
