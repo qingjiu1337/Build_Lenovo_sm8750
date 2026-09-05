@@ -73,11 +73,6 @@ on:
         required: false
         default: true
         type: boolean
-      enable_hidhide:
-        description: "附加构建HIDHide LKM (hidhide.ko)"
-        required: false
-        default: true
-        type: boolean
 
       
        
@@ -98,7 +93,6 @@ jobs:
       ENABLE_SUSFS: ${{ github.event.inputs.enable_susfs }}
       ENABLE_SIGNED: ${{ github.event.inputs.enable_signed }}
       ENABLE_ZW_FIX: ${{ github.event.inputs.enable_zw_fix }}
-      ENABLE_HIDHIDE: ${{ github.event.inputs.enable_hidhide }}
     steps:
       - uses: actions/checkout@v5
         with:
@@ -825,28 +819,6 @@ jobs:
 
             core.info(`旧缓存清理完成，共删除 ${deleted} 个缓存`);
 
-      - name: 🧩 Build HIDHide LKM (hidhide.ko)
-        if: ${{ env.ENABLE_HIDHIDE == 'true' }}
-        run: |
-          cd kernel_workspace/common
-          git clone --depth 1 https://github.com/qingjiu1337/hidhide-module.git /tmp/hidhide
-          export PATH="$GITHUB_WORKSPACE/kernel_workspace/clang18/bin:$PATH"
-          sudo apt-get update -qq && sudo apt-get install -y -qq pahole
-          make -j$(nproc --all) LLVM=1 ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- \
-            CC="$(pwd)/cc-wrapper" LD="$(pwd)/ld-wrapper" HOSTLD=ld.lld O=out \
-            KCFLAGS+=-O2 KCFLAGS+=-Wno-error vmlinux
-          cp out/vmlinux.symvers /tmp/hidhide/Module.symvers
-          make -j$(nproc --all) LLVM=1 ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- \
-            CC="$(pwd)/cc-wrapper" LD="$(pwd)/ld-wrapper" HOSTLD=ld.lld O=out \
-            KCFLAGS+=-O2 KCFLAGS+=-Wno-error KBUILD_EXTRA_SYMBOLS=/tmp/hidhide/Module.symvers M=/tmp/hidhide modules
-          ls -l /tmp/hidhide/hidhide.ko
-
-      - name: 📤 Upload HIDHide LKM
-        if: ${{ env.ENABLE_HIDHIDE == 'true' }}
-        uses: actions/upload-artifact@v5
-        with:
-          name: hidhide_ko_${{ env.KERNEL_VERSION }}
-          path: /tmp/hidhide/hidhide.ko
       - name: 📦 Apply KPM and patch the kernel (应用KPM并修补内核)
         if: ${{ env.ENABLE_KPM == 'true' }}
         run: |
