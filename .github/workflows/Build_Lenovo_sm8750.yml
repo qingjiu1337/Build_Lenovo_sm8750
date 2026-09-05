@@ -5,6 +5,12 @@ permissions:
 on:
   workflow_dispatch:
     inputs:
+      enable_manager_apk:
+        description: "📦 构建并附带ReSukiSU管理器APK"
+        required: false
+        default: true
+        type: boolean
+
       kernel_version:
         description: "📝请选择要编译的版本（仅在不勾选上方选项时生效）"
         required: false
@@ -82,6 +88,7 @@ jobs:
     runs-on: ubuntu-latest
     env:
       FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+      ENABLE_MANAGER_APK: ${{ github.event.inputs.enable_manager_apk }}
       KERNEL_VERSION: ${{ github.event.inputs.kernel_version }}
       CUSTOM_KERNEL_SUFFIX: ${{ github.event.inputs.custom_kernel_suffix }}
       CUSTOM_KERNEL_TIME: ${{ github.event.inputs.custom_kernel_time }}
@@ -859,13 +866,15 @@ jobs:
           python3 rebuild_avb.py --chained-mode
 
       - name: 📥 Download ReSukiSU Manager APK (下载管理器)
+        if: ${{ env.ENABLE_MANAGER_APK == 'true' }}
         run: |
           cd /tmp
-          curl -L -o Manager-release.zip "https://nightly.link/ReSukiSU/ReSukiSU/workflows/build-manager/main/Manager-release.zip"
+          curl -L -o Manager-release.zip "https://nightly.link/ReSukiSU/ReSukiSU/runs/27019748382/Manager-release.zip"
           mkdir -p manager && unzip -o Manager-release.zip -d manager
           ls -la manager/
 
       - name: 📤 Upload ReSukiSU Manager APK (上传管理器)
+        if: ${{ env.ENABLE_MANAGER_APK == 'true' }}
         uses: actions/upload-artifact@v5
         with:
           name: ReSukiSU-Manager
