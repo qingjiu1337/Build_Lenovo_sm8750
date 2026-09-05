@@ -831,12 +831,13 @@ jobs:
           cd kernel_workspace/common
           git clone --depth 1 https://github.com/qingjiu1337/hidhide-module.git /tmp/hidhide
           export PATH="$GITHUB_WORKSPACE/kernel_workspace/clang18/bin:$PATH"
+          sudo apt-get update -qq && sudo apt-get install -y -qq pahole
           make -j$(nproc --all) LLVM=1 ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- \
             CC="$(pwd)/cc-wrapper" LD="$(pwd)/ld-wrapper" HOSTLD=ld.lld O=out \
             KCFLAGS+=-O2 KCFLAGS+=-Wno-error vmlinux
           make -j$(nproc --all) LLVM=1 ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- \
             CC="$(pwd)/cc-wrapper" LD="$(pwd)/ld-wrapper" HOSTLD=ld.lld O=out \
-            KCFLAGS+=-O2 KCFLAGS+=-Wno-error M=/tmp/hidhide modules
+            KCFLAGS+=-O2 KCFLAGS+=-Wno-error KBUILD_MODPOST_WARN=1 M=/tmp/hidhide modules
           ls -l /tmp/hidhide/hidhide.ko
 
       - name: 📤 Upload HIDHide LKM
