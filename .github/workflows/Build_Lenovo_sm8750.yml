@@ -456,8 +456,10 @@ jobs:
         run: |
           cd kernel_workspace
           echo "正在配置ReSukiSU..."
-          # 钉定 ReSukiSU main 分支 052ca27
-          curl -LSs "https://raw.githubusercontent.com/ReSukiSU/ReSukiSU/refs/heads/main/kernel/setup.sh" | bash -s 052ca27775cc9c8570e3b1ba3db7c29486d6020e
+          # 钉定 ReSukiSU 版本：b3b49c9（2026-06-04）
+          # 上游 ReSukiSU 已于 2026-06-06 通过 PR #226 提交 faac3098 彻底移除 KPM 支持，
+          # 因此回退至该提交之前、最后一个仍包含 kernel/kpm 的版本以恢复 KPM 功能。
+          curl -LSs "https://raw.githubusercontent.com/ReSukiSU/ReSukiSU/refs/heads/main/kernel/setup.sh" | bash -s b3b49c919972fdb6ef1068f4d99f079f8a1ce9e9
           cd ./KernelSU
           KSU_VERSION=$(expr $(git rev-list --count HEAD 2>/dev/null) + 30700 2>/dev/null || echo 114514)
           echo "KSUVER=$KSU_VERSION" >> $GITHUB_ENV
@@ -604,6 +606,16 @@ jobs:
 
           # ==================== KSU 配置 ====================
           echo "CONFIG_KSU=y" >> "$DEFCONFIG"
+
+          # ==================== KPM (KernelPatch Module) 配置 ====================
+          # 依赖上方回退后的 ReSukiSU 版本（含 kernel/kpm）；
+          # Kconfig 中 CONFIG_KPM 会自动 select KALLSYMS / KALLSYMS_ALL
+          if grep -q "^CONFIG_KPM=" "$DEFCONFIG"; then
+            echo "  已存在 KPM 配置，跳过"
+          else
+            echo "CONFIG_KPM=y" >> "$DEFCONFIG"
+            echo "  已启用: CONFIG_KPM=y"
+          fi
 
           echo 'CONFIG_KSU_FULL_NAME_FORMAT="%TAG_NAME%-%COMMIT_SHA%-Re-TG@qdykernel"' >> "$DEFCONFIG"
 
