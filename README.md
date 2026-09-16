@@ -19,6 +19,7 @@
 - 🚀 **全自动化编译** - 基于 GitHub Actions，无需本地环境
 - 🔧 **多种 KSU 支持** - ReSukiSU / SukiSU-Ultra 可选
 - ⚡ **性能优化** - 集成ADIOS I/O调度补丁
+- 🧩 **KPM 支持** - 启用 `CONFIG_KPM=y`，支持加载 KernelPatch 模块（ReSukiSU 已回退至仍含 KPM 的版本）
 - 💾 **ccache 缓存** - 智能缓存管理，首次编译使用公共缓存提速 50%，二次编译提速 80%
 - 📦 **开箱即用** - 自动生成 AnyKernel3 刷入包
 
