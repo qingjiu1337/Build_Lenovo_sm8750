@@ -19,7 +19,7 @@ This project provides an automated kernel compilation workflow based on **GitHub
 - 🚀 **Fully Automated Compilation** - Based on GitHub Actions, no local environment required
 - 🔧 **Multiple KSU Support** - ReSukiSU / SukiSU-Ultra options available
 - ⚡ **Performance Optimization** - Integrated ADIOS I/Oscheduler patch
-- 🧩 **KPM Support** - `CONFIG_KPM=y` enabled for loading KernelPatch Modules (ReSukiSU pinned to a revision that still ships KPM)
+- 🧩 **KPM Support** - Toggleable; enables `CONFIG_KPM=y` and pins ReSukiSU to a revision that still ships KPM, allowing KernelPatch Modules to be loaded
 - 💾 **ccache Caching** - Intelligent cache management, 50% speed boost for first compilation with public cache, 80% for subsequent compilations
 - 📦 **Ready to Use** - Automatically generates AnyKernel3 flashable packages
 
