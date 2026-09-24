@@ -174,13 +174,18 @@ jobs:
           mkdir kernel_workspace
           cd kernel_workspace
           
+          # 预置文件检查：以下文件已固化在仓库 prebuilt/ 中，不再从上游 main 拉取，缺失即报错
+          for F in ccache-x86-64 libfakestat.so libfaketimeMT.so; do
+            [ -f "${GITHUB_WORKSPACE}/prebuilt/${F}" ] || { echo "::error::缺少仓库内预置文件 prebuilt/${F}"; exit 1; }
+          done
           sudo apt-mark hold firefox &&
           sudo apt-mark hold libc-bin &&
           sudo apt purge man-db &&
           sudo rm -rf /var/lib/man-db/auto-update &&
           sudo apt update &&
           sudo apt-get install -y --no-install-recommends binutils python-is-python3 libssl-dev libelf-dev dos2unix p7zip-full zstd &
-          wget https://github.com/cctv18/oppo_oplus_realme_sm8750/raw/refs/heads/main/lib/ccache-x86-64 -O ccache &&
+          cp "${GITHUB_WORKSPACE}/prebuilt/ccache-x86-64" ./ccache &&
+          echo "  [预置] ccache-x86-64 sha256: $(sha256sum ./ccache | cut -d' ' -f1)" &&
           sudo cp -f ./ccache /usr/bin/ccache &&
           sudo chmod +x /usr/bin/ccache &&
           rm -f ./ccache &
@@ -454,7 +459,15 @@ jobs:
         run: |
           echo "正在启用启用内核级基带保护支持…"
           cd kernel_workspace
-          wget -O- https://github.com/vc-teahouse/Baseband-guard/raw/main/setup.sh | bash
+          # 固定版本：setup.sh 已固化在仓库 prebuilt/ 中（不再 wget 上游 main | bash）
+          # Baseband-guard 源码钉定到指定提交。注意 setup.sh 内部用的是 git clone --branch <ref>，
+          # 对裸 commit 不可靠，所以这里先自行 clone 并 checkout，setup.sh 再走"目录已存在"分支校验。
+          BBG_REF="a54e0dc6cf0aff4dd87fec49644a02d2eb612905"
+          git clone --no-checkout https://github.com/vc-teahouse/Baseband-guard.git Baseband-guard
+          git -C Baseband-guard -c advice.detachedHead=false checkout -q "$BBG_REF"
+          echo "  [预置] Baseband-guard 钉定提交: $(git -C Baseband-guard rev-parse HEAD)"
+          echo "  [预置] bbg-setup.sh sha256: $(sha256sum "${GITHUB_WORKSPACE}/prebuilt/bbg-setup.sh" | cut -d' ' -f1)"
+          bash "${GITHUB_WORKSPACE}/prebuilt/bbg-setup.sh" "$BBG_REF"
           echo "CONFIG_BBG=y" >> ./common/arch/arm64/configs/gki_defconfig
           sed -i '/^config LSM$/,/^help$/{ /^[[:space:]]*default/ { /baseband_guard/! s/lockdown/lockdown,baseband_guard/ } }' ./common/security/Kconfig
 
@@ -524,20 +537,17 @@ jobs:
         run: |
           echo "==> 开始应用 Unicode 零宽绕过修复补丁 (CVE-2024-43093 / CVE-2024-50089)..."
           PATCH_DIR="${GITHUB_WORKSPACE}/patch"
-          mkdir -p "$PATCH_DIR"
-          # 若补丁不在仓库 patch/ 目录，则自动从上游 ITxiao6666/Unicode_bypass_Fix 下载
+          # 补丁已固化在仓库 patch/ 目录，不再从上游 ITxiao6666/Unicode_bypass_Fix 的 main 下载
           ensure_zw_patch() {
-            local name="$1" url="$2"
+            local name="$1"
             if [ ! -f "${PATCH_DIR}/${name}" ]; then
-              echo "  [$name] 未在仓库中找到，正在从上游下载..."
-              if ! curl -fL --retry 3 -o "${PATCH_DIR}/${name}" "$url"; then
-                echo "::error::[$name] 下载失败: $url"
-                exit 1
-              fi
+              echo "::error::未找到仓库内固定的补丁: ${PATCH_DIR}/${name}"
+              exit 1
             fi
+            echo "  [预置] ${name} sha256: $(sha256sum "${PATCH_DIR}/${name}" | cut -d' ' -f1)"
           }
-          ensure_zw_patch "unicode_bypass_fix_5.10-6.12.patch" "https://raw.githubusercontent.com/ITxiao6666/Unicode_bypass_Fix/main/unicode-bypass_fix_5.10-6.12%E9%80%9A%E7%94%A8.patch"
-          ensure_zw_patch "unicode_bypass_fix2.patch" "https://raw.githubusercontent.com/ITxiao6666/Unicode_bypass_Fix/main/unicode_bypass_fix2.patch"
+          ensure_zw_patch "unicode_bypass_fix_5.10-6.12.patch"
+          ensure_zw_patch "unicode_bypass_fix2.patch"
           for ZW_PATCH in "unicode_bypass_fix_5.10-6.12.patch" "unicode_bypass_fix2.patch"; do
             ZW_PATCH_PATH="${PATCH_DIR}/${ZW_PATCH}"
             echo "  应用: $ZW_PATCH"
@@ -687,8 +697,10 @@ jobs:
           echo "sloppiness = file_stat_matches,include_file_ctime,include_file_mtime,pch_defines,file_macro,time_macros" >> "$CCACHE_DIR/ccache.conf"
           
           cd kernel_workspace/common
-          wget https://github.com/cctv18/oppo_oplus_realme_sm8750/raw/refs/heads/main/lib/libfakestat.so
-          wget https://github.com/cctv18/oppo_oplus_realme_sm8750/raw/refs/heads/main/lib/libfaketimeMT.so
+          cp "${GITHUB_WORKSPACE}/prebuilt/libfakestat.so" .
+          cp "${GITHUB_WORKSPACE}/prebuilt/libfaketimeMT.so" .
+          echo "  [预置] libfakestat.so   sha256: $(sha256sum libfakestat.so | cut -d' ' -f1)"
+          echo "  [预置] libfaketimeMT.so sha256: $(sha256sum libfaketimeMT.so | cut -d' ' -f1)"
           chmod 777 ./*.so
           export FAKESTAT="2025-05-25 12:00:00"
           export FAKETIME="@2025-05-25 13:00:00"
