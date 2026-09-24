@@ -1,0 +1,8 @@
+# 签名工具快照：锁定字节内容，禁止 git 做任何行尾转换或 diff 处理
+# 目的：让 prebuilt/boot_avb_tool/SHA256SUMS 在 Windows / Linux 上校验结果完全一致
+prebuilt/boot_avb_tool/** -text -diff
+
+# 预置二进制同样按原样存储，不做行尾转换
+prebuilt/ccache-x86-64 -text -diff
+prebuilt/libfakestat.so -text -diff
+prebuilt/libfaketimeMT.so -text -diff

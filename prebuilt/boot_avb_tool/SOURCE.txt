@@ -1,0 +1,44 @@
+AOSP-Testkey-BootSigner 签名工具快照（仓库内固化，不再跟随上游 main）
+================================================================
+
+上游仓库 : https://github.com/showdo/AOSP-Testkey-BootSigner
+固定提交 : 0afc0203d9e28b37499f895bf1d4cf4e2f9c661a
+固定日期 : 2025-11-01
+获取方式 : https://github.com/showdo/AOSP-Testkey-BootSigner/archive/0afc0203d9e28b37499f895bf1d4cf4e2f9c661a.tar.gz
+
+固化原因
+--------
+原工作流在签名步骤实时下载 archive/refs/heads/main.tar.gz，
+上游一旦改动 tools/avbtool.py、tools/magiskboot 或 rebuild_avb.py，
+历史构建的签名行为就会无声漂移，且无法复现旧版本产物。
+现改为把整份工具放进仓库，签名步骤只做「校验 + 拷贝」，不再联网取工具。
+
+文件清单
+--------
+README.md                    上游说明
+rebuild_avb.py               AVB 重建/链式签名主脚本（基于 os.getcwd() 定位依赖，与目录名无关）
+tools/avbtool.py             AOSP avbtool（由 rebuild_avb.py 以 sys.executable 调用）
+tools/magiskboot             magiskboot x86-64 ELF，负责 boot.img 解包/重打包
+tools/pem/testkey_rsa2048.pem  AOSP 公开测试密钥（RSA 2048）
+tools/pem/testkey_rsa4096.pem  AOSP 公开测试密钥（RSA 4096）
+SHA256SUMS                   以上文件的 SHA256 校验清单
+
+注意
+----
+1. 这些密钥是 AOSP 公开的 testkey，仅用于自编译内核的本地测试签名，
+   不具备任何保密价值，也无法用于冒充厂商正式固件签名。
+2. prebuilt/boot_avb_tool/** 已在 .gitattributes 中标记为 -text -diff，
+   禁止 git 做任何行尾转换，以保证 SHA256SUMS 在任意平台校验一致。
+3. 若需升级工具版本，请整体替换本目录并重新生成 SHA256SUMS，
+   同时更新工作流签名步骤注释里的固定提交号。
+
+维护
+----
+替换命令（示例）：
+  curl -fL --retry 3 -o /tmp/signer.tar.gz \
+    https://github.com/showdo/AOSP-Testkey-BootSigner/archive/<NEW_SHA>.tar.gz
+  tar -xzf /tmp/signer.tar.gz -C /tmp
+  # 用解压结果覆盖本目录，然后：
+  cd prebuilt/boot_avb_tool && \
+  sha256sum README.md rebuild_avb.py tools/avbtool.py tools/magiskboot \
+            tools/pem/testkey_rsa2048.pem tools/pem/testkey_rsa4096.pem > SHA256SUMS

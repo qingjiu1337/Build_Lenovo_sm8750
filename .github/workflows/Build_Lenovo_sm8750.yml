@@ -879,13 +879,22 @@ jobs:
       - name: 📦 Sign boot using AOSP test key (使用AOSP测试密钥签名boot)
         if: ${{ env.ENABLE_SIGNED == 'true' }}
         run: |
+          set -euo pipefail
           cd kernel_workspace
-          aria2c -s16 -x16 -k1M "https://github.com/showdo/AOSP-Testkey-BootSigner/archive/refs/heads/main.tar.gz" -o boot_avb_tool.tar.gz
+          # 签名工具已快照固化进仓库，不再从上游 refs/heads/main 取 tar 包
+          # 来源: showdo/AOSP-Testkey-BootSigner @ 0afc0203d9e28b37499f895bf1d4cf4e2f9c661a
+          SIGNER_SRC="${GITHUB_WORKSPACE}/prebuilt/boot_avb_tool"
+          if [ ! -f "${SIGNER_SRC}/rebuild_avb.py" ] || [ ! -f "${SIGNER_SRC}/SHA256SUMS" ]; then
+            echo "::error::缺少仓库内签名工具快照 ${SIGNER_SRC}/ (需要 rebuild_avb.py 与 SHA256SUMS)"
+            exit 1
+          fi
+          echo "==> 校验签名工具快照完整性..."
+          ( cd "${SIGNER_SRC}" && sha256sum -c --strict SHA256SUMS )
+          rm -rf boot_avb_tool
           mkdir -p boot_avb_tool
-          tar -xzf boot_avb_tool.tar.gz -C boot_avb_tool
-          rm -f boot_avb_tool.tar.gz
-          cp ./common/out/arch/arm64/boot/Image ./boot_avb_tool/AOSP-Testkey-BootSigner-main/kernel
-          cd boot_avb_tool/AOSP-Testkey-BootSigner-main
+          cp -a "${SIGNER_SRC}" boot_avb_tool/signer
+          cp ./common/out/arch/arm64/boot/Image ./boot_avb_tool/signer/kernel
+          cd boot_avb_tool/signer
           # 原厂 boot.img 固定为 100663296 字节(96MiB)，改用 aria2c 多线程下载并强制校验完整性
           rm -f boot.img
           aria2c -s16 -x16 -k1M --max-tries=5 --retry-wait=3 --allow-overwrite=true --auto-file-renaming=false \
@@ -902,6 +911,12 @@ jobs:
           rm -f ./boot.img kernel
           mv ./new-boot.img ./boot.img
           python3 rebuild_avb.py --chained-mode
+          # rebuild_avb.py 失败时不会返回非 0 退出码，这里显式兜底，避免静默产出坏产物
+          if [ ! -s boot.img ]; then
+            echo "::error::签名流程已结束但未产出有效的 boot.img"
+            exit 1
+          fi
+          echo "==> 签名完成: boot.img $(stat -c%s boot.img) 字节"
 
       - name: 📦 Use pinned ReSukiSU Manager APK (使用固定版本管理器)
         # 固定版本：ReSukiSU v4.1.0 / versionCode 34965 (arm64-v8a)
@@ -933,7 +948,7 @@ jobs:
         uses: actions/upload-artifact@v5
         with:
          name: Boot_${{ env.KSUVER }}_${{ env.KERNEL_VERSION }}_ReSukiSU_AOSP_Signed
-         path: kernel_workspace/boot_avb_tool/AOSP-Testkey-BootSigner-main/boot.img
+         path: kernel_workspace/boot_avb_tool/signer/boot.img
 
       - name: 🚀 Publish to Releases (发布到 Releases)
         if: ${{ env.ENABLE_RELEASE == 'true' }}
@@ -946,8 +961,8 @@ jobs:
           # 内核 Image
           cp kernel_workspace/common/out/arch/arm64/boot/kernel "release_files/kernel_${{ env.KERNEL_VERSION }}_${{ env.KSUVER }}"
           # 已签名的 boot (若启用)
-          if [ -f kernel_workspace/boot_avb_tool/AOSP-Testkey-BootSigner-main/boot.img ]; then
-            cp kernel_workspace/boot_avb_tool/AOSP-Testkey-BootSigner-main/boot.img "release_files/Boot_${{ env.KSUVER }}_${{ env.KERNEL_VERSION }}_ReSukiSU_AOSP_Signed.img"
+          if [ -f kernel_workspace/boot_avb_tool/signer/boot.img ]; then
+            cp kernel_workspace/boot_avb_tool/signer/boot.img "release_files/Boot_${{ env.KSUVER }}_${{ env.KERNEL_VERSION }}_ReSukiSU_AOSP_Signed.img"
           fi
           # ReSukiSU 管理器 (若启用)
           if compgen -G "/tmp/manager/*.apk" > /dev/null; then
