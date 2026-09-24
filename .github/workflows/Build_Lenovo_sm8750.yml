@@ -461,22 +461,26 @@ jobs:
       
       - name: ⚙️ Set ReSukiSU (设置ReSukiSU)
         run: |
+          set -eo pipefail
           cd kernel_workspace
           echo "正在配置ReSukiSU..."
           # 上游 ReSukiSU 已于 2026-06-06 通过 PR #226（提交 faac3098）彻底移除 KPM 支持，
           # 且此后版本 Kconfig 中已无 config KPM，加 CONFIG_KPM=y 也无效。
           # 因此：启用 KPM 时回退至移除前最后一个仍含 kernel/kpm 的版本 b3b49c9；
-          #       不启用 KPM 时使用 main 最新版 052ca27。
+          #       不启用 KPM 时使用 052ca27。
+          # 注意：内核源码与 setup.sh 均钉定到固定提交，不再跟随上游 main 分支。
           if [ "${{ env.ENABLE_KPM }}" = "true" ]; then
             RESUKISU_REF="b3b49c919972fdb6ef1068f4d99f079f8a1ce9e9"
             echo "==> KPM 已启用：ReSukiSU 钉定至 b3b49c9 (2026-06-04，含 kernel/kpm)"
           else
             RESUKISU_REF="052ca27775cc9c8570e3b1ba3db7c29486d6020e"
-            echo "==> KPM 未启用：ReSukiSU 钉定至 main 最新版 052ca27 (2026-09-11)"
+            echo "==> KPM 未启用：ReSukiSU 钉定至 052ca27 (2026-09-11)"
           fi
-          curl -LSs "https://raw.githubusercontent.com/ReSukiSU/ReSukiSU/refs/heads/main/kernel/setup.sh" | bash -s "$RESUKISU_REF"
+          # setup.sh 同样从钉定的提交取，避免每次构建都拉上游 main 的脚本
+          curl -fsLSs "https://raw.githubusercontent.com/ReSukiSU/ReSukiSU/${RESUKISU_REF}/kernel/setup.sh" | bash -s "$RESUKISU_REF"
           cd ./KernelSU
           KSU_VERSION=$(expr $(git rev-list --count HEAD 2>/dev/null) + 30700 2>/dev/null || echo 114514)
+          echo "固定版本校验: ReSukiSU 提交 ${RESUKISU_REF} -> KSUVER=${KSU_VERSION}"
           echo "KSUVER=$KSU_VERSION" >> $GITHUB_ENV
           echo "ksuver=$KSU_VERSION" >> $GITHUB_OUTPUT
 
@@ -823,26 +827,47 @@ jobs:
         if: ${{ env.ENABLE_SIGNED == 'true' }}
         run: |
           cd kernel_workspace
-          aria2c -s16 -x16 -k1M "https://github.com/showdo/AOSP-Testkey-BootSigner/archive/refs/heads/main.tar.gz" -o boot_avb_tool.tar.gz && \
-          mkdir -p boot_avb_tool && \
-          tar -xzf boot_avb_tool.tar.gz -C boot_avb_tool && \
-          rm -f boot_avb_tool.tar.gz && \
+          aria2c -s16 -x16 -k1M "https://github.com/showdo/AOSP-Testkey-BootSigner/archive/refs/heads/main.tar.gz" -o boot_avb_tool.tar.gz
+          mkdir -p boot_avb_tool
+          tar -xzf boot_avb_tool.tar.gz -C boot_avb_tool
+          rm -f boot_avb_tool.tar.gz
           cp ./common/out/arch/arm64/boot/Image ./boot_avb_tool/AOSP-Testkey-BootSigner-main/kernel
-          cd boot_avb_tool/AOSP-Testkey-BootSigner-main && \
-          curl -L -o boot.img https://github.com/showdo/AOSP-Testkey-BootSigner/releases/download/${{ env.releases }}/boot.img
+          cd boot_avb_tool/AOSP-Testkey-BootSigner-main
+          # 原厂 boot.img 固定为 100663296 字节(96MiB)，改用 aria2c 多线程下载并强制校验完整性
+          rm -f boot.img
+          aria2c -s16 -x16 -k1M --max-tries=5 --retry-wait=3 --allow-overwrite=true --auto-file-renaming=false \
+            -o boot.img "https://github.com/showdo/AOSP-Testkey-BootSigner/releases/download/${{ env.releases }}/boot.img"
+          BOOT_SIZE=$(stat -c%s boot.img)
+          BOOT_MAGIC=$(head -c 8 boot.img)
+          echo "boot.img 校验: ${BOOT_SIZE} 字节, magic=[${BOOT_MAGIC}]"
+          if [ "${BOOT_MAGIC}" != "ANDROID!" ] || [ "${BOOT_SIZE}" -lt 100000000 ]; then
+            echo "::error::boot.img 下载不完整或已损坏(${BOOT_SIZE} 字节)，magiskboot 无法解析"
+            exit 1
+          fi
           chmod +x ./tools/magiskboot
           ./tools/magiskboot repack boot.img
           rm -f ./boot.img kernel
           mv ./new-boot.img ./boot.img
           python3 rebuild_avb.py --chained-mode
 
-      - name: 📥 Download ReSukiSU Manager APK (下载管理器)
+      - name: 📦 Use pinned ReSukiSU Manager APK (使用固定版本管理器)
+        # 固定版本：ReSukiSU v4.1.0 / versionCode 34965 (arm64-v8a)
+        # 不再从 nightly.link 拉取上游最新构建，直接用仓库内 manager/ 目录下的预置 APK
         if: ${{ env.ENABLE_MANAGER_APK == 'true' }}
         run: |
-          cd /tmp
-          curl -L -o Manager-release.zip "https://nightly.link/ReSukiSU/ReSukiSU/workflows/build-manager/main/Manager-release.zip"
-          mkdir -p manager && unzip -o Manager-release.zip -d manager
-          ls -la manager/
+          set -euo pipefail
+          SRC="${GITHUB_WORKSPACE}/manager/ReSukiSU_v4.1.0_34965-arm64-v8a-release.apk"
+          EXPECT_SHA256="31a053ff600667fd12aab23d8ff478269635eaf18cbbba8aa7d0b3a564b38d99"
+          if [ ! -f "$SRC" ]; then
+            echo "::error::未找到固定版本的管理器 APK: $SRC"
+            exit 1
+          fi
+          echo "==> 校验固定版本 APK 完整性..."
+          echo "${EXPECT_SHA256}  ${SRC}" | sha256sum -c -
+          mkdir -p /tmp/manager
+          cp "$SRC" /tmp/manager/
+          echo "==> ReSukiSU 管理器: v4.1.0 (34965) 已就绪"
+          ls -la /tmp/manager/
 
       - name: 📤 Upload ReSukiSU Manager APK (上传管理器)
         if: ${{ env.ENABLE_MANAGER_APK == 'true' }}
