@@ -535,35 +535,76 @@ jobs:
         if: ${{ env.ENABLE_ZW_FIX == 'true' }}
         working-directory: kernel_workspace/common
         run: |
+          set -eo pipefail
           echo "==> 开始应用 Unicode 零宽绕过修复补丁 (CVE-2024-43093 / CVE-2024-50089)..."
           PATCH_DIR="${GITHUB_WORKSPACE}/patch"
-          # 补丁已固化在仓库 patch/ 目录，不再从上游 ITxiao6666/Unicode_bypass_Fix 的 main 下载
-          ensure_zw_patch() {
-            local name="$1"
-            if [ ! -f "${PATCH_DIR}/${name}" ]; then
-              echo "::error::未找到仓库内固定的补丁: ${PATCH_DIR}/${name}"
+
+          # ============ 目标状态判定：以文件内容为准，命令退出码只作参考 ============
+          # unicode 补丁改的是生成出来的数据文件，内容精确，优先用"能否干净反向应用"判定；
+          # 兜底特征：mkutf8data.c 里 ignore_init 被移除 + 数据表长度由 64256 变为 64080
+          zw_unicode_ok() {
+            if git apply -R -p1 -C1 --recount --ignore-whitespace --check "${PATCH_DIR}/unicode_bypass_fix_5.10-6.12.patch" >/dev/null 2>&1; then
+              return 0
+            fi
+            ! grep -qF -- 'ignore_init' fs/unicode/mkutf8data.c &&
+              grep -qF -- 'static const unsigned char utf8data[64080] = {' fs/unicode/utf8data.c_shipped
+          }
+
+          # f2fs 补丁：源码包里的后移版本上下文与补丁后像不完全一致，反向判定不可靠，用特征串判定
+          zw_f2fs_ok() {
+            grep -qF -- 'bool use_hash' fs/f2fs/dir.c &&
+              grep -qF -- 'bool use_hash' fs/f2fs/inline.c
+          }
+
+          apply_zw_patch() {
+            local name="$1" checker="$2"
+            local p="${PATCH_DIR}/${name}"
+            local log="/tmp/zw_${name%.patch}.log"
+
+            if [ ! -f "$p" ]; then
+              echo "::error::未找到仓库内固定的补丁: $p"
               exit 1
             fi
-            echo "  [预置] ${name} sha256: $(sha256sum "${PATCH_DIR}/${name}" | cut -d' ' -f1)"
-          }
-          ensure_zw_patch "unicode_bypass_fix_5.10-6.12.patch"
-          ensure_zw_patch "unicode_bypass_fix2.patch"
-          for ZW_PATCH in "unicode_bypass_fix_5.10-6.12.patch" "unicode_bypass_fix2.patch"; do
-            ZW_PATCH_PATH="${PATCH_DIR}/${ZW_PATCH}"
-            echo "  应用: $ZW_PATCH"
-            dos2unix "$ZW_PATCH_PATH"
-            if patch -p1 --forward --ignore-whitespace < "$ZW_PATCH_PATH" > /tmp/zw_patch.log 2>&1; then
-              echo "  ✓ $ZW_PATCH 应用成功"
-            else
-              if grep -q "Reversed (or previously applied) patch detected" /tmp/zw_patch.log; then
-                echo "  ✓ $ZW_PATCH 已应用过，跳过"
-              else
-                echo "  ::warning::$ZW_PATCH 应用失败，可能已应用或上下文不匹配，详见 /tmp/zw_patch.log"
-                tail -n 20 /tmp/zw_patch.log || true
-              fi
+            echo "  [预置] ${name} sha256: $(sha256sum "$p" | cut -d' ' -f1)"
+
+            # 源码里已经有这个改动就直接跳过（本仓库多个版本的源码包已自带上游修复）
+            if "$checker"; then
+              echo "  [跳过] $name ：源码已处于目标状态，无需再打"
+              return 0
             fi
-          done
-          echo "==> Unicode 零宽绕过修复补丁处理完成"
+
+            echo "  应用: $name"
+            dos2unix "$p"
+            local how=""
+            # 先 git apply（全有或全无，失败不留半成品），不行再退到 patch（允许 fuzz 与行号偏移）
+            if git apply -p1 -C1 --recount --ignore-whitespace "$p" > "$log" 2>&1; then
+              how="git apply -C1"
+            elif patch -p1 -N -l -F3 --batch --no-backup-if-mismatch < "$p" >> "$log" 2>&1; then
+              how="patch -F3"
+            fi
+
+            # 最终一律以特征校验为准：源码真的变成目标状态才算成功，否则硬报错
+            if ! "$checker"; then
+              echo "::error::$name 应用失败：git apply 与 patch 都已尝试，源码仍未达到目标状态"
+              echo "----- 应用日志（末尾 40 行）-----"
+              tail -n 40 "$log" || true
+              echo "----- 拒绝文件 .rej -----"
+              find . -name '*.rej' -print | head -20 || true
+              exit 1
+            fi
+            echo "  ✓ $name 应用成功（方式: ${how:-命令退出码非 0，但特征校验通过}）"
+          }
+
+          # 1) unicode 数据表补丁：四个内核版本的源码包都还没打，需要实际应用
+          apply_zw_patch "unicode_bypass_fix_5.10-6.12.patch" zw_unicode_ok
+          # 2) f2fs 线性搜索回退：6.6.89 / 6.6.102 / 6.6.118 的源码包已自带，6.6.56 的没有，
+          #    两种情况都正常，由特征校验自动决定"跳过"还是"应用"
+          apply_zw_patch "unicode_bypass_fix2.patch" zw_f2fs_ok
+
+          echo "==> 处理完成，最终状态："
+          echo "    fs/unicode/mkutf8data.c       ignore_init 残留: $(grep -c 'ignore_init' fs/unicode/mkutf8data.c || true)"
+          echo "    fs/unicode/utf8data.c_shipped 数据表声明: $(grep -o 'utf8data\[[0-9]*\]' fs/unicode/utf8data.c_shipped | head -1)"
+          echo "    fs/f2fs/dir.c                 use_hash 数量: $(grep -c 'use_hash' fs/f2fs/dir.c || true)"
 
       - name: 🔧 Set gki_defconfig (设置编译配置)
         run: |
