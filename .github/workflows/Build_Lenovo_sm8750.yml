@@ -865,6 +865,57 @@ jobs:
 
             core.info(`旧缓存清理完成，共删除 ${deleted} 个缓存`);
 
+      - name: 🧩 Patch KPM into kernel Image (给内核镜像打入KPM补丁)
+        # CONFIG_KPM=y 只会编出 kernel/kpm/kpm.c 里的空桩函数（patch 锚点），
+        # 真正的 KPM loader 必须用 kptools 把 kpimg 注入内核镜像才会生效。
+        # 少了这一步，管理器首页会显示「KPM 版本: 不支持 (内核未进行补丁)」。
+        # 顺序要求：必须排在「ReName Image」与「Sign boot」之前 ——
+        # 打补丁会改写镜像字节，上传的 kernel 与 AVB 签名都要用打完补丁的镜像。
+        if: ${{ env.ENABLE_KPM == 'true' }}
+        run: |
+          set -euo pipefail
+          KPM_SRC="${GITHUB_WORKSPACE}/prebuilt/kpm"
+          if [ ! -f "${KPM_SRC}/kptools" ] || [ ! -f "${KPM_SRC}/kpimg" ] || [ ! -f "${KPM_SRC}/SHA256SUMS" ]; then
+            echo "::error::缺少仓库内 KPM 工具快照 ${KPM_SRC}/ (需要 kptools / kpimg / SHA256SUMS)"
+            exit 1
+          fi
+          echo "==> 校验 KPM 工具快照完整性..."
+          ( cd "${KPM_SRC}" && sha256sum -c --strict SHA256SUMS )
+          cd kernel_workspace/common/out/arch/arm64/boot
+          cp "${KPM_SRC}/kptools" ./kptools
+          cp "${KPM_SRC}/kpimg" ./kpimg
+          chmod +x ./kptools
+          echo "==> kptools / kpimg 版本"
+          ./kptools -v
+          ./kptools -v -k ./kpimg
+          echo "==> 打补丁前的镜像信息"
+          ./kptools -l -i ./Image || true
+          BEFORE_SIZE=$(stat -c%s ./Image)
+          echo "  Image = ${BEFORE_SIZE} 字节"
+          rm -f ./oImage
+          echo "==> 执行: kptools -p -s 123 -i Image -k kpimg -o oImage"
+          if ! ./kptools -p -s 123 -i ./Image -k ./kpimg -o ./oImage 2>&1 | tee /tmp/kptools.log; then
+            echo "::error::kptools 打补丁失败，KPM 无法生效"
+            exit 1
+          fi
+          if ! grep -q "patch done" /tmp/kptools.log; then
+            echo "::error::kptools 未报告 patch done，补丁未生效"
+            exit 1
+          fi
+          if [ ! -s ./oImage ]; then
+            echo "::error::kptools 未产出 oImage"
+            exit 1
+          fi
+          if cmp -s ./Image ./oImage; then
+            echo "::error::补丁后镜像与原始镜像字节完全相同，补丁未写入"
+            exit 1
+          fi
+          echo "==> 打补丁后的镜像信息"
+          ./kptools -l -i ./oImage || true
+          mv -f ./oImage ./Image
+          rm -f ./kptools ./kpimg
+          echo "==> KPM 已注入内核镜像: ${BEFORE_SIZE} -> $(stat -c%s ./Image) 字节"
+
       - name: 📦 ReName Image  (修改镜像名)
         run: |
           cd kernel_workspace/common/out/arch/arm64/boot

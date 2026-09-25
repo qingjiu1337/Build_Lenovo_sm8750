@@ -1,0 +1,80 @@
+KPM 打补丁工具快照（仓库内固化）
+================================
+
+背景
+----
+内核里 ENABLE_KPM=true 只会做一半的事：
+在 defconfig 里加 CONFIG_KPM=y，编出 kernel/kpm/kpm.c 里的
+sukisu_kpm_load_module_path / _unload_module / _num / _info /
+_list / _control / _version —— 这七个函数全是 noinline NO_OPTIMIZE
+的空桩（只 pr_info("kpm: Stub function called ...")），它们是给
+打补丁用的锚点，本身不实现任何功能。
+
+真正的 KPM loader 必须用 kptools 把 kpimg 注入内核镜像才会生效。
+少了这一步，管理器首页会显示：
+    KPM 版本 / 不支持 (内核未进行补丁)
+（isKPMEnabled() 为 true 因为控制码接口在；getKpmVersion() 执行
+  ksud kpm version 拿到空串。这句提示是字面意思。）
+
+补丁命令（与管理器 KPM Patch 功能等价）
+--------------------------------------
+    kptools -p -s 123 -i Image -k kpimg -o oImage
+    mv oImage Image
+
+  -p          打补丁（-u 是撤销）
+  -s 123      superkey，与管理器 KernelFlashState.kt 里硬编码的 123 保持一致
+  -i          输入内核镜像（common/out/arch/arm64/boot/Image）
+  -k          kpimg 载荷
+  -o          输出镜像
+
+文件清单
+--------
+kptools  736560 字节  KernelPatch 官方 x86-64 Linux 版 kptools
+                      来源 https://github.com/bmax121/KernelPatch
+                      版本 0.13.9（2026-09-24）资产 kptools-linux
+kpimg    180160 字节  ReSukiSU KPM 专用的 KernelPatch 载荷，魔数 KP1158
+                      来源 https://github.com/ShirkNeko/SukiSU_patch
+                      固定提交 547ae94bcaec53d030398f857950c64662043a5d
+                      路径 kpm/kpimg
+
+为什么 kpimg 必须用 ShirkNeko 这一份
+------------------------------------
+实测（对二进制做字符串检索）只有这一份 kpimg 认识内核里的桩符号：
+
+  SukiSU_patch/kpm/kpimg           命中 "sukisu_kpm" 19 次
+  KernelPatch/kpimg-linux          命中 0 次
+  KernelPatch/kpimg-android        命中 0 次
+  KernelPatch-Next/kpimg-linux     命中 0 次
+
+也就是说官方 KernelPatch 的 kpimg 不会去填 sukisu_kpm_* 这些锚点，
+打了也等于没打。管理器（RemoteToolsDownloader.kt）从同一个地址下载
+的就是这一份，所以必须保持一致。
+
+为什么 kptools 可以用官方那一份
+------------------------------
+ShirkNeko 自己发布的 patch_linux（x86-64，6013320 字节）是把官方
+kptools-linux 内嵌进去的封装；实测 patch_linux 里能找到 kptools-linux
+的 7 个抽样窗口中的 6 个字节完全一致，说明用的就是同一份构建。
+两者 kpimg 容器版本号都是 KP1158，格式兼容。
+
+注意
+----
+1. kptools 是 x86-64 ELF（CI runner 上跑）；手机上用的是 AArch64 版
+   （SukiSU_patch/kpm/kptools），不要混用。
+2. prebuilt/kpm/** 已在 .gitattributes 中标记为 -text -diff，
+   禁止 git 做任何行尾转换，以保证 SHA256SUMS 在任意平台校验一致。
+3. 本补丁会改写内核镜像，所以工作流里必须放在
+   「ReName Image」和「Sign boot」之前 —— 打补丁会改变镜像字节，
+   AVB 签名必须在补丁之后重算。
+
+维护
+----
+升级步骤：
+  curl -fL -o kptools \
+    https://github.com/bmax121/KernelPatch/releases/download/<KP_TAG>/kptools-linux
+  curl -fL -o kpimg \
+    https://raw.githubusercontent.com/ShirkNeko/SukiSU_patch/<SHA>/kpm/kpimg
+  sha256sum kptools kpimg > SHA256SUMS
+  # 顺带更新 SOURCE.txt 里的版本号与提交号
+升级后请确认 kpimg 里仍有 "sukisu_kpm" 字符串，否则 KPM 不会生效：
+  grep -c sukisu_kpm kpimg
